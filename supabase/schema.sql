@@ -86,8 +86,21 @@ create policy "profiles read self or staff" on public.profiles for select to aut
 using (id = auth.uid() or public.is_staff() or exists (
   select 1 from public.delivery_orders o where o.customer_id = auth.uid() and o.courier_id = profiles.id
 ));
-create policy "profile update self safe fields" on public.profiles for update to authenticated
-using (id = auth.uid()) with check (id = auth.uid() and role = (select p.role from public.profiles p where p.id = auth.uid()));
+create or replace function public.guard_profile_privileges()
+returns trigger language plpgsql security definer set search_path = public
+as $
+begin
+  if auth.uid() is not null and old.role is distinct from new.role and not public.is_admin() then
+    raise exception 'Only an administrator can change account roles';
+  end if;
+  return new;
+end;
+$;
+create trigger profiles_guard_privileges before update on public.profiles
+for each row execute function public.guard_profile_privileges();
+
+create policy "profile update self" on public.profiles for update to authenticated
+using (id = auth.uid()) with check (id = auth.uid());
 create policy "staff manage profiles" on public.profiles for all to authenticated
 using (public.is_admin()) with check (public.is_admin());
 
@@ -97,8 +110,6 @@ create policy "customer courier staff read order" on public.delivery_orders for 
 using (customer_id = auth.uid() or courier_id = auth.uid() or public.is_staff() or (status = 'new' and exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'courier' and p.is_active)));
 create policy "staff update orders" on public.delivery_orders for update to authenticated
 using (public.is_staff()) with check (public.is_staff());
-create policy "assigned courier update order status" on public.delivery_orders for update to authenticated
-using (courier_id = auth.uid()) with check (courier_id = auth.uid() and customer_id = (select o.customer_id from public.delivery_orders o where o.id = id));
 
 create policy "order events visible to participants" on public.order_events for select to authenticated
 using (exists (select 1 from public.delivery_orders o where o.id = order_id and (o.customer_id = auth.uid() or o.courier_id = auth.uid() or public.is_staff())));
@@ -123,3 +134,18 @@ grant select, insert, update on public.delivery_orders to authenticated;
 grant select, insert on public.order_events to authenticated;
 grant select, insert, update on public.courier_shifts to authenticated;
 grant select, insert on public.courier_reviews to authenticated;
+
+-- Create a basic client profile after Supabase Auth signup.
+create or replace function public.handle_new_user()
+returns trigger language plpgsql security definer set search_path = public
+as $$
+begin
+  insert into public.profiles (id, full_name, role)
+  values (new.id, coalesce(new.raw_user_meta_data ->> 'full_name', ''), 'client')
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+create trigger on_auth_user_created
+after insert on auth.users
+for each row execute function public.handle_new_user();

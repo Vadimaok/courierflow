@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import { Bike, Boxes, CalendarDays, Check, ChevronRight, CircleDollarSign, Clock3, MapPin, Package, Plus, Search, Settings2, ShieldCheck, Star, Truck, Users, Wallet, X } from 'lucide-react'
 
 type Role = 'dispatcher' | 'courier' | 'client' | 'admin'
@@ -77,7 +78,7 @@ export default function App() {
   </div>
 }
 function roleLabel(role: Role) { return ({ dispatcher: 'Диспетчер', courier: 'Курьер', client: 'Клиент', admin: 'Администратор' })[role] }
-function Stat({icon,label,value,note,tone}:{icon:React.ReactNode;label:string;value:string;note:string;tone:string}) { return <div className="stat-card"><div className={'stat-icon '+tone}>{icon}</div><div className="stat-label">{label}</div><div className="stat-value">{value}</div><div className="stat-note">{note}</div></div> }
+function Stat({icon,label,value,note,tone}:{icon:ReactNode;label:string;value:string;note:string;tone:string}) { return <div className="stat-card"><div className={'stat-icon '+tone}>{icon}</div><div className="stat-label">{label}</div><div className="stat-value">{value}</div><div className="stat-note">{note}</div></div> }
 function OrderTable({orders,updateOrder,role}:{orders:Order[];updateOrder:(id:string)=>void;role:Role}) { return <div className="table-wrap"><table><thead><tr><th>ЗАКАЗ</th><th>КЛИЕНТ</th><th>АДРЕС ДОСТАВКИ</th><th>КУРЬЕР</th><th>СТАТУС</th><th>СУММА</th><th/></tr></thead><tbody>{orders.map(o=><tr key={o.id}><td><b className="order-id">{o.id}</b><small className="cell-sub">{o.time}</small></td><td>{o.customer}</td><td><span className="address"><MapPin size={13}/>{o.address}</span></td><td>{o.courier}</td><td><span className={'status status-'+statusClass(o.status)}>{o.status}</span></td><td><b>{money(o.price)}</b></td><td><button className="advance-btn" onClick={()=>updateOrder(o.id)} disabled={o.status==='Доставлен'||role==='client'} title="Изменить статус"><ChevronRight size={16}/></button></td></tr>)}</tbody></table>{orders.length===0&&<div className="empty-table">Заказы не найдены</div>}</div> }
 function statusClass(s:Status) { return ({'Новый':'new','Назначен':'assigned','Забран':'picked','В пути':'route','Доставлен':'done'})[s] }
 function Courier({name,status,count,rating}:{name:string;status:string;count:string;rating:string}) { return <div className="courier-card"><div className="courier-avatar"><Bike/></div><div className="courier-info"><b>{name}</b><span>{status}</span><small>{count}</small></div><div className="rating"><Star size={14} fill="currentColor"/>{rating}</div></div> }

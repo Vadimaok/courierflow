@@ -185,9 +185,13 @@ using (
   or (select private.is_staff()) or (status = 'new' and (select private.is_active_courier()))
 );
 
-create policy "staff update orders"
+create policy "staff or courier update orders"
 on public.delivery_orders for update to authenticated
-using ((select private.is_staff())) with check ((select private.is_staff()));
+using (
+  (select private.is_staff())
+  or ((select private.is_active_courier()) and (courier_id = (select auth.uid()) or (courier_id is null and status = 'new')))
+)
+with check ((select private.is_staff()) or (courier_id = (select auth.uid()) and (select private.is_active_courier())));
 
 create policy "order events visible to participants"
 on public.order_events for select to authenticated
@@ -198,10 +202,14 @@ using (exists (
   )
 ));
 
-create policy "staff add order events"
+create policy "staff or assigned courier add order events"
 on public.order_events for insert to authenticated
-with check (actor_id = (select auth.uid()) and (select private.is_staff())
-  and exists (select 1 from public.delivery_orders o where o.id = order_id));
+with check (
+  actor_id = (select auth.uid())
+  and ((select private.is_staff()) or exists (
+    select 1 from public.delivery_orders o where o.id = order_id and o.courier_id = (select auth.uid())
+  ))
+);
 
 create policy "courier reads own shifts or staff"
 on public.courier_shifts for select to authenticated
@@ -279,15 +287,6 @@ revoke all on public.telegram_accounts from anon, authenticated;
 grant all on public.telegram_accounts to service_role;
 
 -- Couriers can claim unassigned orders and advance only their own delivery.
-create policy "courier may see available and own orders"
-on public.delivery_orders for select to authenticated
-using (courier_id = (select auth.uid()) or (status = 'new' and (select private.is_active_courier())));
-
-create policy "courier claims and advances own orders"
-on public.delivery_orders for update to authenticated
-using ((select private.is_active_courier()) and (courier_id = (select auth.uid()) or (courier_id is null and status = 'new')))
-with check (courier_id = (select auth.uid()) and (select private.is_active_courier()));
-
 create or replace function private.guard_courier_order_update()
 returns trigger language plpgsql security definer set search_path = ''
 as $$
@@ -315,8 +314,5 @@ for each row execute function private.guard_courier_order_update();
 revoke all on function private.guard_courier_order_update() from public, anon, authenticated;
 grant update (courier_id, status, accepted_at, picked_up_at, delivered_at) on public.delivery_orders to authenticated;
 
-create policy "courier may write own order events"
-on public.order_events for insert to authenticated
-with check (actor_id = (select auth.uid()) and exists (
-  select 1 from public.delivery_orders o where o.id = order_id and o.courier_id = (select auth.uid())
-));
+create policy "service role manages Telegram identities"
+on public.telegram_accounts for all to service_role using (true) with check (true);

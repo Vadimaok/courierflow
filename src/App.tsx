@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { supabase } from './lib/supabase'
 import type { Session, User } from '@supabase/supabase-js'
-import { Bike, CalendarDays, Check, ChevronRight, CircleDollarSign, Clock3, LogOut, MapPin, Package, Plus, RefreshCw, Search, ShieldCheck, Star, Truck, Users, Wallet, X } from 'lucide-react'
+import { Bike, CalendarDays, Check, ChevronRight, CircleDollarSign, Clock3, LogOut, MapPin, Package, Plus, RefreshCw, Search, Truck, Users, Wallet, X } from 'lucide-react'
 
 type Role = 'admin' | 'dispatcher' | 'courier' | 'client'
 type OrderStatus = 'new' | 'assigned' | 'picked_up' | 'in_transit' | 'delivered' | 'cancelled'
@@ -228,7 +228,7 @@ export default function App() {
       <div className="sidebar-bottom"><div className="avatar">{(profile?.full_name || session.user.email || 'U').slice(0,1).toUpperCase()}</div><div className="profile-copy"><b>{profile?.full_name || session.user.email}</b><small>{roleNames[role]}</small></div><button className="icon-btn" onClick={signOut} title="Выйти"><LogOut size={16}/></button></div>
     </aside>
     <main className="main">
-      <header className="topbar"><div className="breadcrumb">CourierFlow <ChevronRight size={14}/><b>{heading}</b></div><div className="top-actions"><span className="live-pill"><span className="online-dot"/> Supabase подключён</span><button className="icon-btn" onClick={()=>void loadData(session.user)} title="Обновить"><RefreshCw size={15}/></button><div className="avatar small">{(profile?.full_name||'U').slice(0,1).toUpperCase()}</div></div></header>
+      <header className="topbar"><div className="breadcrumb">CourierFlow <ChevronRight size={14}/><b>{heading}</b></div><div className="top-actions"><span className="live-pill"><span className="online-dot"/> Supabase подключён</span><button className="icon-btn" disabled={refreshing} onClick={()=>void loadData(session.user)} title="Обновить"><RefreshCw size={15}/></button><div className="avatar small">{(profile?.full_name||'U').slice(0,1).toUpperCase()}</div></div></header>
       <div className="content">
         <div className="page-heading"><div><div className="eyebrow">{roleNames[role].toUpperCase()}</div><h1>{tab==='overview'?'Добрый день, '+(profile?.full_name||'пользователь'):heading}</h1><p>Данные загружаются из базы CourierFlow и синхронизируются между устройствами.</p></div>{(role==='client'||isStaff)&&<button className="primary-btn" onClick={()=>setShowCreate(true)}><Plus size={17}/> Новый заказ</button>}</div>
         <section className="stats-grid">
@@ -244,7 +244,7 @@ export default function App() {
         {tab==='clients'&&<div className="empty-panel"><Users size={30}/><h3>Клиенты</h3><p>Список клиентов будет показывать только профили, связанные с заказами пользователя или доступные сотрудникам.</p></div>}
         {tab==='finance'&&<div className="stats-grid"><Stat icon={<Wallet/>} label="Оборот доставок" value={money(revenue)} note="Доставленные заказы" tone="green"/><Stat icon={<Package/>} label="Заказов завершено" value={String(orders.filter(o=>o.status==='delivered').length)} note="Из загруженных записей" tone="blue"/></div>}
         {tab==='earnings'&&<div className="stats-grid"><Stat icon={<Wallet/>} label="Мой заработок" value={money(myEarnings)} note="70% от стоимости доставленных заказов" tone="green"/><Stat icon={<Package/>} label="Мои доставки" value={String(orders.filter(o=>o.courier_id===session.user.id&&o.status==='delivered').length)} note="Завершено" tone="blue"/></div>}
-        {tab==='schedule'&&<div className="shift-list"><h2>Мои смены</h2>{shifts.length?shifts.filter(s=>role==='courier'?true:isStaff).map(s=><div className="shift-row" key={s.id}><CalendarDays size={18}/><div><b>{time(s.starts_at)}</b><small>{s.ends_at?time(s.ends_at):'Время окончания не задано'}</small></div><span className="status status-assigned">{s.status}</span></div>):<div className="empty-panel">Смен пока нет. Диспетчер сможет добавить их после настройки расписания.</div>}</div>}
+        {tab==='schedule'&&<div className="shift-list"><h2>Мои смены</h2>{shifts.length?shifts.map(s=><div className="shift-row" key={s.id}><CalendarDays size={18}/><div><b>{time(s.starts_at)}</b><small>{s.ends_at?time(s.ends_at):'Время окончания не задано'}</small></div><span className="status status-assigned">{s.status}</span></div>):<div className="empty-panel">Смен пока нет. Диспетчер сможет добавить их после настройки расписания.</div>}</div>}
       </div>
     </main>
     {notice&&<div className="toast"><Check size={16}/>{notice}</div>}

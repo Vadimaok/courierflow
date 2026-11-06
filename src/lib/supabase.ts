@@ -1,11 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
-const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
-
-if (!url || !key) {
-  throw new Error('CourierFlow is missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY.')
-}
+const url = import.meta.env.VITE_SUPABASE_URL || 'https://rimdwjsnvxcggmrauisv.supabase.co'
+const key = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_gL-eQLaU1EGcBZRyQnGSnQ_5dKg5VJh'
 
 export const supabase = createClient(url, key, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },

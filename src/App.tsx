@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 import { supabase } from './lib/supabase'
 import type { Session, User } from '@supabase/supabase-js'
 import { Bike, CalendarDays, Check, ChevronRight, CircleDollarSign, Clock3, LogOut, MapPin, Package, Plus, RefreshCw, Search, ShieldCheck, Star, Truck, Users, Wallet, X } from 'lucide-react'
@@ -235,7 +235,7 @@ export default function App() {
   </div>
 }
 
-function Stat({icon,label,value,note,tone}:{icon:React.ReactNode;label:string;value:string;note:string;tone:string}) { return <div className="stat-card"><div className={'stat-icon '+tone}>{icon}</div><div className="stat-label">{label}</div><div className="stat-value">{value}</div><div className="stat-note">{note}</div></div> }
+function Stat({icon,label,value,note,tone}:{icon:ReactNode;label:string;value:string;note:string;tone:string}) { return <div className="stat-card"><div className={'stat-icon '+tone}>{icon}</div><div className="stat-label">{label}</div><div className="stat-value">{value}</div><div className="stat-note">{note}</div></div> }
 function OrderList({orders,role,userId,onAdvance}:{orders:Order[];role:Role;userId:string;onAdvance:(order:Order)=>void}) {
   if (!orders.length) return <div className="empty-panel"><Package size={28}/><h3>Заказов пока нет</h3><p>Создай первый заказ или обнови страницу, когда диспетчер назначит доставку.</p></div>
   return <div className="live-order-list">{orders.map(o=>{

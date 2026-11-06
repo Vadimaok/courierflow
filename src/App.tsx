@@ -83,7 +83,7 @@ export default function App() {
     const { data, error } = await supabase.functions.invoke('telegram-auth', { body: { initData } })
     if (error) {
       let payload: { code?: string; error?: string } | null = null
-      const context = (error as { context?: Response }).context
+      const context = (error as unknown as { context?: Response }).context
       if (context && typeof context.clone === 'function') {
         try { payload = await context.clone().json() } catch { payload = null }
       }
@@ -165,13 +165,18 @@ export default function App() {
 
   const signIn = async (event: FormEvent) => {
     event.preventDefault(); setAuthBusy(true); setAuthMessage('')
-    const result = authMode === 'signup'
-      ? await supabase.auth.signUp({ email: email.trim(), password, options: { data: { full_name: fullName.trim() } } })
-      : await supabase.auth.signInWithPassword({ email: email.trim(), password })
-    if (result.error) setAuthMessage(result.error.message)
-    else if (authMode === 'signup' && !result.data.session) setAuthMessage('Аккаунт создан. Подтверди почту по ссылке из письма, затем войди.')
-    else if (result.data.session) { setSession(result.data.session); await loadData(result.data.session.user, true) }
-    setAuthBusy(false)
+    try {
+      const result = authMode === 'signup'
+        ? await supabase.auth.signUp({ email: email.trim(), password, options: { data: { full_name: fullName.trim() } } })
+        : await supabase.auth.signInWithPassword({ email: email.trim(), password })
+      if (result.error) setAuthMessage(result.error.message)
+      else if (authMode === 'signup' && !result.data.session) setAuthMessage('Аккаунт создан. Подтверди почту по ссылке из письма, затем войди.')
+      else if (result.data.session) { setSession(result.data.session); await loadData(result.data.session.user, true) }
+    } catch (error) {
+      setAuthMessage(error instanceof Error && error.message === 'Failed to fetch'
+        ? 'Браузер не смог подключиться к Supabase Auth. Проверь доступ к адресу rimdwjsnvxcggmrauisv.supabase.co и попробуй другую сеть.'
+        : error instanceof Error ? error.message : 'Не удалось связаться с сервером авторизации.')
+    } finally { setAuthBusy(false) }
   }
 
   const createOrder = async (event: FormEvent) => {
@@ -252,7 +257,7 @@ export default function App() {
         })
       }}>{authBusy ? 'Подождите…' : 'Поделиться номером телефона'}</button>
       <button type="button" className="primary-btn full" disabled={authBusy || !phoneShared} onClick={() => void finishTelegramLogin()}>Продолжить <ChevronRight size={16}/></button>
-      <div className="auth-hint">Номер передаётся только после твоего подтверждения в Telegram. Не вводи его вручную в чате.</div>
+      <div className="auth-hint">{phoneRequired ? 'Для создания аккаунта требуется подтверждённый номер Telegram.' : 'Номер передаётся только после твоего подтверждения в Telegram. Не вводи его вручную в чате.'}</div>
       <button type="button" className="text-btn auth-switch" onClick={()=>{setShowEmailAuth(true);setAuthMessage('')}}>Войти по электронной почте</button>
     </div>}
     {(!tg?.initData || showEmailAuth) && <>

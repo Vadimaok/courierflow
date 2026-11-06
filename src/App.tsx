@@ -34,6 +34,9 @@ export default function App() {
   const [notice, setNotice] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [authBusy, setAuthBusy] = useState(false)
+  const [phoneRequired, setPhoneRequired] = useState(false)
+  const [phoneShared, setPhoneShared] = useState(false)
+  const [showEmailAuth, setShowEmailAuth] = useState(false)
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -43,7 +46,7 @@ export default function App() {
   const [price, setPrice] = useState('0')
   const [note, setNote] = useState('')
   const [authMessage, setAuthMessage] = useState('')
-  const tg = window.Telegram?.WebApp
+  const tg = window.Telegram?.WebApp as (typeof window.Telegram.WebApp & { requestContact?: (callback: (shared: boolean) => void) => void }) | undefined
 
   const notify = (message: string) => {
     setNotice(message)
@@ -72,6 +75,43 @@ export default function App() {
     setLoading(false)
   }, [])
 
+  const finishTelegramLogin = useCallback(async () => {
+    const initData = tg?.initData
+    if (!initData) { setAuthMessage('Открой CourierFlow через Telegram-бота.'); return }
+    setAuthBusy(true)
+    setAuthMessage('Проверяем Telegram и привязанный номер…')
+    const { data, error } = await supabase.functions.invoke('telegram-auth', { body: { initData } })
+    if (error) {
+      let payload: { code?: string; error?: string } | null = null
+      const context = (error as { context?: Response }).context
+      if (context && typeof context.clone === 'function') {
+        try { payload = await context.clone().json() } catch { payload = null }
+      }
+      if (payload?.code === 'PHONE_REQUIRED' || payload?.code === 'PHONE_PENDING') {
+        setPhoneRequired(true)
+        setAuthMessage(payload.error || 'Поделись номером телефона через Telegram, затем нажми «Продолжить».')
+      } else {
+        setAuthMessage(payload?.error || error.message || 'Не удалось связаться с сервером авторизации. Проверь подключение и секреты Supabase.')
+      }
+      setAuthBusy(false)
+      return
+    }
+    if (!data?.token_hash) {
+      setAuthMessage(data?.error || 'Сервер не вернул токен входа.')
+      setAuthBusy(false)
+      return
+    }
+    const { data: verified, error: verifyError } = await supabase.auth.verifyOtp({ token_hash: data.token_hash, type: 'magiclink' })
+    if (verifyError || !verified.session) {
+      setAuthMessage(verifyError?.message || 'Не удалось завершить вход. Повтори попытку.')
+      setAuthBusy(false)
+      return
+    }
+    setSession(verified.session)
+    await loadData(verified.session.user, true)
+    setAuthBusy(false)
+  }, [tg, loadData])
+
   useEffect(() => {
     tg?.ready()
     tg?.expand()
@@ -85,21 +125,10 @@ export default function App() {
         await loadData(data.session.user, true)
         return
       }
-      const initData = tg?.initData
-      if (initData) {
-        setAuthMessage('Проверяем Telegram...')
-        const { data: authData, error } = await supabase.functions.invoke('telegram-auth', { body: { initData } })
-        if (!error && authData?.token_hash) {
-          const { data: verified, error: verifyError } = await supabase.auth.verifyOtp({ token_hash: authData.token_hash, type: 'magiclink' })
-          if (!verifyError && verified.session) {
-            setSession(verified.session)
-            await loadData(verified.session.user, true)
-            return
-          }
-          setAuthMessage(verifyError?.message || 'Не удалось завершить вход через Telegram.')
-        } else {
-          setAuthMessage(error?.message || authData?.error || 'Telegram-вход пока не настроен. Используй вход по почте.')
-        }
+      if (tg?.initData) {
+        await finishTelegramLogin()
+        setLoading(false)
+        return
       }
       setLoading(false)
     })
@@ -112,7 +141,7 @@ export default function App() {
       }
     })
     return () => { mounted = false; listener.subscription.unsubscribe() }
-  }, [loadData, tg])
+  }, [loadData, tg, finishTelegramLogin])
 
   useEffect(() => {
     if (!session) return
@@ -210,13 +239,31 @@ export default function App() {
     <div className="auth-brand"><div className="brand-mark"><Truck size={22}/></div><div><b>CourierFlow</b><small>DELIVERY CONTROL</small></div></div>
     <div className="eyebrow">КУРЬЕРСКАЯ ПЛАТФОРМА</div><h1>{authMode === 'signin' ? 'С возвращением' : 'Создать аккаунт'}</h1>
     <p>Войди, чтобы работать с реальными заказами и данными службы доставки.</p>
-    {authMode === 'signup' && <label>Имя<input required value={fullName} onChange={e=>setFullName(e.target.value)} placeholder="Как к тебе обращаться"/></label>}
-    <label>Электронная почта<input required type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="name@example.com"/></label>
-    <label>Пароль<input required type="password" minLength={6} autoComplete={authMode==='signin'?'current-password':'new-password'} value={password} onChange={e=>setPassword(e.target.value)} placeholder="Не менее 6 символов"/></label>
-    {authMessage && <div className="auth-message">{authMessage}</div>}
-    <button className="primary-btn full" disabled={authBusy}>{authBusy?'Подождите…':authMode==='signin'?'Войти':'Зарегистрироваться'}</button>
-    <button type="button" className="text-btn auth-switch" onClick={()=>{setAuthMode(authMode==='signin'?'signup':'signin');setAuthMessage('')}}>{authMode==='signin'?'Нет аккаунта? Создать':'Уже есть аккаунт? Войти'}</button>
-    {tg?.initData && <div className="auth-hint">Telegram открыт. Для входа без почты настрой серверный секрет TELEGRAM_BOT_TOKEN.</div>}
+    {tg?.initData && !showEmailAuth && <div className="telegram-auth-panel">
+      <div className="telegram-auth-icon"><Users size={22}/></div>
+      <h2>Регистрация через Telegram</h2>
+      <p>Подтверди свой номер в системном окне Telegram. Мы привяжем его к аккаунту и будем использовать для связи по доставкам.</p>
+      {authMessage && <div className="auth-message">{authMessage}</div>}
+      <button type="button" className="primary-btn full" disabled={authBusy || !tg.requestContact} onClick={() => {
+        if (!tg.requestContact) { setAuthMessage('Обнови Telegram до версии с поддержкой подтверждения номера.'); return }
+        tg.requestContact((shared) => {
+          setPhoneShared(shared)
+          setAuthMessage(shared ? 'Telegram принял запрос на передачу номера. Нажми «Продолжить» через секунду.' : 'Передача номера отменена. Номер не будет привязан.')
+        })
+      }}>{authBusy ? 'Подождите…' : 'Поделиться номером телефона'}</button>
+      <button type="button" className="primary-btn full" disabled={authBusy || !phoneShared} onClick={() => void finishTelegramLogin()}>Продолжить <ChevronRight size={16}/></button>
+      <div className="auth-hint">Номер передаётся только после твоего подтверждения в Telegram. Не вводи его вручную в чате.</div>
+      <button type="button" className="text-btn auth-switch" onClick={()=>{setShowEmailAuth(true);setAuthMessage('')}}>Войти по электронной почте</button>
+    </div>}
+    {(!tg?.initData || showEmailAuth) && <>
+      {authMode === 'signup' && <label>Имя<input required value={fullName} onChange={e=>setFullName(e.target.value)} placeholder="Как к тебе обращаться"/></label>}
+      <label>Электронная почта<input required type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="name@example.com"/></label>
+      <label>Пароль<input required type="password" minLength={6} autoComplete={authMode==='signin'?'current-password':'new-password'} value={password} onChange={e=>setPassword(e.target.value)} placeholder="Не менее 6 символов"/></label>
+      {authMessage && <div className="auth-message">{authMessage}</div>}
+      <button className="primary-btn full" disabled={authBusy}>{authBusy?'Подождите…':authMode==='signin'?'Войти':'Зарегистрироваться'}</button>
+      <button type="button" className="text-btn auth-switch" onClick={()=>{setAuthMode(authMode==='signin'?'signup':'signin');setAuthMessage('')}}>{authMode==='signin'?'Нет аккаунта? Создать':'Уже есть аккаунт? Войти'}</button>
+      {tg?.initData && <button type="button" className="text-btn auth-switch" onClick={()=>setShowEmailAuth(false)}>Вернуться к регистрации через Telegram</button>}
+    </>}
   </form></div>
 
   return <div className="app-shell">

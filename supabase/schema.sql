@@ -266,3 +266,57 @@ begin
     alter publication supabase_realtime add table public.courier_shifts;
   end if;
 end $$;
+
+
+-- Telegram identity mapping used only by the server-side telegram-auth Edge Function.
+create table if not exists public.telegram_accounts (
+  telegram_id bigint primary key,
+  user_id uuid not null unique references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+alter table public.telegram_accounts enable row level security;
+revoke all on public.telegram_accounts from anon, authenticated;
+grant all on public.telegram_accounts to service_role;
+
+-- Couriers can claim unassigned orders and advance only their own delivery.
+create policy "courier may see available and own orders"
+on public.delivery_orders for select to authenticated
+using (courier_id = (select auth.uid()) or (status = 'new' and (select private.is_active_courier())));
+
+create policy "courier claims and advances own orders"
+on public.delivery_orders for update to authenticated
+using ((select private.is_active_courier()) and (courier_id = (select auth.uid()) or (courier_id is null and status = 'new')))
+with check (courier_id = (select auth.uid()) and (select private.is_active_courier()));
+
+create or replace function private.guard_courier_order_update()
+returns trigger language plpgsql security definer set search_path = ''
+as $$
+declare staff_user boolean := private.is_staff(); courier_user boolean := private.is_active_courier();
+begin
+  if staff_user then new.updated_at := now(); return new; end if;
+  if not courier_user or (old.courier_id is not null and old.courier_id <> auth.uid()) then raise exception 'Not allowed to update this order'; end if;
+  if old.courier_id is null and old.status = 'new' then
+    if new.courier_id <> auth.uid() or new.status <> 'assigned' then raise exception 'A courier can only claim a new order'; end if;
+  else
+    if new.courier_id <> old.courier_id or new.customer_id <> old.customer_id
+      or new.pickup_address <> old.pickup_address or new.delivery_address <> old.delivery_address
+      or new.customer_note is distinct from old.customer_note or new.price <> old.price
+      or new.scheduled_for is distinct from old.scheduled_for or new.created_at <> old.created_at
+      or new.order_number <> old.order_number then raise exception 'Courier cannot edit order details'; end if;
+    if not ((old.status = 'assigned' and new.status = 'picked_up')
+      or (old.status = 'picked_up' and new.status = 'in_transit')
+      or (old.status = 'in_transit' and new.status = 'delivered')) then raise exception 'Invalid courier status transition'; end if;
+  end if;
+  new.updated_at := now(); return new;
+end;
+$$;
+create trigger delivery_orders_guard_courier before update on public.delivery_orders
+for each row execute function private.guard_courier_order_update();
+revoke all on function private.guard_courier_order_update() from public, anon, authenticated;
+grant update (courier_id, status, accepted_at, picked_up_at, delivered_at) on public.delivery_orders to authenticated;
+
+create policy "courier may write own order events"
+on public.order_events for insert to authenticated
+with check (actor_id = (select auth.uid()) and exists (
+  select 1 from public.delivery_orders o where o.id = order_id and o.courier_id = (select auth.uid())
+));

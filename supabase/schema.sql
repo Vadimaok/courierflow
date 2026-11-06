@@ -279,7 +279,8 @@ end $$;
 -- Telegram identity mapping used only by the server-side telegram-auth Edge Function.
 create table if not exists public.telegram_accounts (
   telegram_id bigint primary key,
-  user_id uuid not null unique references auth.users(id) on delete cascade,
+  user_id uuid unique references auth.users(id) on delete cascade,
+  phone_number text,
   created_at timestamptz not null default now()
 );
 alter table public.telegram_accounts enable row level security;
@@ -316,3 +317,8 @@ grant update (courier_id, status, accepted_at, picked_up_at, delivered_at) on pu
 
 create policy "service role manages Telegram identities"
 on public.telegram_accounts for all to service_role using (true) with check (true);
+
+-- Phone confirmation arrives through the authenticated Telegram bot webhook.
+alter table public.telegram_accounts alter column user_id drop not null;
+alter table public.telegram_accounts add column if not exists phone_number text;
+create unique index if not exists telegram_accounts_phone_number_uidx on public.telegram_accounts (phone_number) where phone_number is not null;

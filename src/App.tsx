@@ -46,7 +46,7 @@ export default function App() {
   const [price, setPrice] = useState('0')
   const [note, setNote] = useState('')
   const [authMessage, setAuthMessage] = useState('')
-  const tg = window.Telegram?.WebApp as (typeof window.Telegram.WebApp & { requestContact?: (callback: (shared: boolean) => void) => void }) | undefined
+  const tg = window.Telegram?.WebApp as (NonNullable<typeof window.Telegram>['WebApp'] & { requestContact?: (callback: (shared: boolean) => void) => void }) | undefined
 
   const notify = (message: string) => {
     setNotice(message)

@@ -263,7 +263,7 @@ function OrderList({orders,role,userId,couriers,onAdvance,onAssign}:{orders:Orde
   return <div className="live-order-list">{orders.map(o=>{
     const canClaim=role==='courier'&&o.status==='new'&&!o.courier_id
     const mine=o.courier_id===userId
-    const canAdvance=role==='courier'?(canClaim||mine&&['assigned','picked_up','in_transit'].includes(o.status)):(role==='admin'||role==='dispatcher')&&o.status!=='new'
+    const canAdvance=role==='courier'?(canClaim||mine&&['assigned','picked_up','in_transit'].includes(o.status)):(role==='admin'||role==='dispatcher')&&['assigned','picked_up','in_transit'].includes(o.status)
     const next=canClaim?'Принять заказ':o.status==='assigned'?'Забрал заказ':o.status==='picked_up'?'Выехал':o.status==='in_transit'?'Завершить':o.status==='new'?'Назначить':''
     return <article className="live-order-card" key={o.id}><div className="live-order-top"><b>Заказ #{o.order_number}</b><span className={'status status-'+o.status}>{statusNames[o.status]}</span></div><div className="order-route"><div><i className="route-dot from"/><span><small>ОТКУДА</small><b>{o.pickup_address}</b></span></div><div><i className="route-dot to"/><span><small>КУДА</small><b>{o.delivery_address}</b></span></div></div>{o.customer_note&&<p className="order-note">{o.customer_note}</p>}{(role==='admin'||role==='dispatcher')&&o.status==='new'&&<AssignControl order={o} couriers={couriers} onAssign={onAssign}/>}<div className="live-order-bottom"><span>{time(o.created_at)}</span><b>{money(Number(o.price))}</b>{canAdvance&&<button className="advance-btn wide" onClick={()=>onAdvance(o)}>{next}<ChevronRight size={15}/></button>}</div></article>
   })}</div>

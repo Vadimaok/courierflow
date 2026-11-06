@@ -1,8 +1,17 @@
--- CourierFlow initial schema. Apply in a fresh Supabase project.
-create extension if not exists pgcrypto;
+-- CourierFlow database schema (PostgreSQL 17 / Supabase).
+-- Applied to the hosted CourierFlow project on 2026-11-06.
+-- For a fresh project, run this file once from the Supabase SQL Editor.
 
-create type public.app_role as enum ('admin', 'dispatcher', 'courier', 'client');
-create type public.order_status as enum ('new', 'assigned', 'picked_up', 'in_transit', 'delivered', 'cancelled');
+create schema if not exists private;
+revoke all on schema private from public;
+grant usage on schema private to authenticated;
+
+do $$ begin
+  create type public.app_role as enum ('admin', 'dispatcher', 'courier', 'client');
+exception when duplicate_object then null; end $$;
+do $$ begin
+  create type public.order_status as enum ('new', 'assigned', 'picked_up', 'in_transit', 'delivered', 'cancelled');
+exception when duplicate_object then null; end $$;
 
 create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -30,7 +39,8 @@ create table public.delivery_orders (
   picked_up_at timestamptz,
   delivered_at timestamptz,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint delivery_orders_different_parties check (courier_id is null or courier_id <> customer_id)
 );
 
 create table public.order_events (
@@ -66,15 +76,88 @@ create table public.courier_reviews (
 create index delivery_orders_customer_idx on public.delivery_orders(customer_id, created_at desc);
 create index delivery_orders_courier_idx on public.delivery_orders(courier_id, status);
 create index delivery_orders_status_idx on public.delivery_orders(status, created_at desc);
+create index order_events_order_idx on public.order_events(order_id, created_at);
+create index order_events_actor_idx on public.order_events(actor_id);
 create index courier_shifts_courier_idx on public.courier_shifts(courier_id, starts_at desc);
+create index courier_reviews_courier_idx on public.courier_reviews(courier_id, created_at desc);
+create index courier_reviews_customer_idx on public.courier_reviews(customer_id);
 
-create or replace function public.is_staff()
-returns boolean language sql stable security definer set search_path = public
-as $$ select exists (select 1 from public.profiles where id = auth.uid() and role in ('admin','dispatcher') and is_active); $$;
+create or replace function private.is_staff()
+returns boolean language sql stable security definer set search_path = ''
+as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = (select auth.uid()) and p.role in ('admin','dispatcher') and p.is_active
+  );
+$$;
 
-create or replace function public.is_admin()
-returns boolean language sql stable security definer set search_path = public
-as $$ select exists (select 1 from public.profiles where id = auth.uid() and role = 'admin' and is_active); $$;
+create or replace function private.is_admin()
+returns boolean language sql stable security definer set search_path = ''
+as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = (select auth.uid()) and p.role = 'admin' and p.is_active
+  );
+$$;
+
+create or replace function private.is_active_courier()
+returns boolean language sql stable security definer set search_path = ''
+as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = (select auth.uid()) and p.role = 'courier' and p.is_active
+  );
+$$;
+
+create or replace function private.can_view_profile(target_profile_id uuid)
+returns boolean language sql stable security definer set search_path = ''
+as $$
+  select exists (
+    select 1 from public.delivery_orders o
+    where (o.customer_id = (select auth.uid()) and o.courier_id = target_profile_id)
+       or (o.courier_id = (select auth.uid()) and o.customer_id = target_profile_id)
+  );
+$$;
+
+create or replace function private.guard_profile_privileges()
+returns trigger language plpgsql security definer set search_path = ''
+as $$
+begin
+  if (old.role is distinct from new.role or old.is_active is distinct from new.is_active)
+     and auth.uid() is not null and not private.is_admin() then
+    raise exception 'Only an administrator can change account role or active status';
+  end if;
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+create or replace function private.set_updated_at()
+returns trigger language plpgsql set search_path = ''
+as $$
+begin
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+create or replace function private.handle_new_user()
+returns trigger language plpgsql security definer set search_path = ''
+as $$
+begin
+  insert into public.profiles (id, full_name, role)
+  values (new.id, coalesce(new.raw_user_meta_data ->> 'full_name', ''), 'client')
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+create trigger profiles_guard_privileges before update on public.profiles
+for each row execute function private.guard_profile_privileges();
+create trigger delivery_orders_set_updated_at before update on public.delivery_orders
+for each row execute function private.set_updated_at();
+create trigger on_auth_user_created after insert on auth.users
+for each row execute function private.handle_new_user();
 
 alter table public.profiles enable row level security;
 alter table public.delivery_orders enable row level security;
@@ -82,50 +165,70 @@ alter table public.order_events enable row level security;
 alter table public.courier_shifts enable row level security;
 alter table public.courier_reviews enable row level security;
 
-create policy "profiles read self or staff" on public.profiles for select to authenticated
-using (id = auth.uid() or public.is_staff() or exists (
-  select 1 from public.delivery_orders o where o.customer_id = auth.uid() and o.courier_id = profiles.id
+create policy "profiles read self staff or counterpart"
+on public.profiles for select to authenticated
+using (id = (select auth.uid()) or (select private.is_staff()) or (select private.can_view_profile(id)));
+
+create policy "profile update self or admin"
+on public.profiles for update to authenticated
+using (id = (select auth.uid()) or (select private.is_admin()))
+with check (id = (select auth.uid()) or (select private.is_admin()));
+
+create policy "customer create own order"
+on public.delivery_orders for insert to authenticated
+with check (customer_id = (select auth.uid()) and courier_id is null and status = 'new');
+
+create policy "customer courier staff read order"
+on public.delivery_orders for select to authenticated
+using (
+  customer_id = (select auth.uid()) or courier_id = (select auth.uid())
+  or (select private.is_staff()) or (status = 'new' and (select private.is_active_courier()))
+);
+
+create policy "staff update orders"
+on public.delivery_orders for update to authenticated
+using ((select private.is_staff())) with check ((select private.is_staff()));
+
+create policy "order events visible to participants"
+on public.order_events for select to authenticated
+using (exists (
+  select 1 from public.delivery_orders o
+  where o.id = order_id and (
+    o.customer_id = (select auth.uid()) or o.courier_id = (select auth.uid()) or (select private.is_staff())
+  )
 ));
-create or replace function public.guard_profile_privileges()
-returns trigger language plpgsql security definer set search_path = public
-as $
-begin
-  if auth.uid() is not null and old.role is distinct from new.role and not public.is_admin() then
-    raise exception 'Only an administrator can change account roles';
-  end if;
-  return new;
-end;
-$;
-create trigger profiles_guard_privileges before update on public.profiles
-for each row execute function public.guard_profile_privileges();
 
-create policy "profile update self" on public.profiles for update to authenticated
-using (id = auth.uid()) with check (id = auth.uid());
-create policy "staff manage profiles" on public.profiles for all to authenticated
-using (public.is_admin()) with check (public.is_admin());
+create policy "staff add order events"
+on public.order_events for insert to authenticated
+with check (actor_id = (select auth.uid()) and (select private.is_staff())
+  and exists (select 1 from public.delivery_orders o where o.id = order_id));
 
-create policy "customer create own order" on public.delivery_orders for insert to authenticated
-with check (customer_id = auth.uid() and courier_id is null and status = 'new');
-create policy "customer courier staff read order" on public.delivery_orders for select to authenticated
-using (customer_id = auth.uid() or courier_id = auth.uid() or public.is_staff() or (status = 'new' and exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'courier' and p.is_active)));
-create policy "staff update orders" on public.delivery_orders for update to authenticated
-using (public.is_staff()) with check (public.is_staff());
+create policy "courier reads own shifts or staff"
+on public.courier_shifts for select to authenticated
+using (courier_id = (select auth.uid()) or (select private.is_staff()));
 
-create policy "order events visible to participants" on public.order_events for select to authenticated
-using (exists (select 1 from public.delivery_orders o where o.id = order_id and (o.customer_id = auth.uid() or o.courier_id = auth.uid() or public.is_staff())));
-create policy "participants add order events" on public.order_events for insert to authenticated
-with check (actor_id = auth.uid() and exists (select 1 from public.delivery_orders o where o.id = order_id and (o.customer_id = auth.uid() or o.courier_id = auth.uid() or public.is_staff())));
+create policy "staff inserts shifts"
+on public.courier_shifts for insert to authenticated
+with check ((select private.is_staff()));
 
-create policy "courier reads own shifts or staff" on public.courier_shifts for select to authenticated
-using (courier_id = auth.uid() or public.is_staff());
-create policy "staff manages shifts" on public.courier_shifts for all to authenticated
-using (public.is_staff()) with check (public.is_staff());
+create policy "staff updates shifts"
+on public.courier_shifts for update to authenticated
+using ((select private.is_staff())) with check ((select private.is_staff()));
 
-create policy "reviews visible to participants or staff" on public.courier_reviews for select to authenticated
-using (customer_id = auth.uid() or courier_id = auth.uid() or public.is_staff());
-create policy "customer reviews delivered order" on public.courier_reviews for insert to authenticated
-with check (customer_id = auth.uid() and exists (
-  select 1 from public.delivery_orders o where o.id = order_id and o.customer_id = auth.uid() and o.courier_id = courier_id and o.status = 'delivered'
+create policy "staff deletes shifts"
+on public.courier_shifts for delete to authenticated
+using ((select private.is_staff()));
+
+create policy "reviews visible to participants or staff"
+on public.courier_reviews for select to authenticated
+using (customer_id = (select auth.uid()) or courier_id = (select auth.uid()) or (select private.is_staff()));
+
+create policy "customer reviews delivered order"
+on public.courier_reviews for insert to authenticated
+with check (customer_id = (select auth.uid()) and exists (
+  select 1 from public.delivery_orders o
+  where o.id = order_id and o.customer_id = (select auth.uid())
+    and o.courier_id = courier_id and o.status = 'delivered'
 ));
 
 grant usage on type public.app_role, public.order_status to authenticated;
@@ -135,17 +238,14 @@ grant select, insert on public.order_events to authenticated;
 grant select, insert, update on public.courier_shifts to authenticated;
 grant select, insert on public.courier_reviews to authenticated;
 
--- Create a basic client profile after Supabase Auth signup.
-create or replace function public.handle_new_user()
-returns trigger language plpgsql security definer set search_path = public
-as $$
-begin
-  insert into public.profiles (id, full_name, role)
-  values (new.id, coalesce(new.raw_user_meta_data ->> 'full_name', ''), 'client')
-  on conflict (id) do nothing;
-  return new;
-end;
-$$;
-create trigger on_auth_user_created
-after insert on auth.users
-for each row execute function public.handle_new_user();
+revoke all on function private.is_staff() from public, anon;
+revoke all on function private.is_admin() from public, anon;
+revoke all on function private.is_active_courier() from public, anon;
+revoke all on function private.can_view_profile(uuid) from public, anon;
+revoke all on function private.guard_profile_privileges() from public, anon, authenticated;
+revoke all on function private.set_updated_at() from public, anon, authenticated;
+revoke all on function private.handle_new_user() from public, anon, authenticated;
+grant execute on function private.is_staff() to authenticated;
+grant execute on function private.is_admin() to authenticated;
+grant execute on function private.is_active_courier() to authenticated;
+grant execute on function private.can_view_profile(uuid) to authenticated;

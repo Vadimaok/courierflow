@@ -14,6 +14,7 @@ type Order = {
   accepted_at: string | null; picked_up_at: string | null; delivered_at: string | null
 }
 type Shift = { id: string; starts_at: string; ends_at: string | null; status: string }
+type CourierOption = { id: string; full_name: string; phone: string | null }
 
 const roleNames: Record<Role, string> = { admin: 'Администратор', dispatcher: 'Диспетчер', courier: 'Курьер', client: 'Клиент' }
 const statusNames: Record<OrderStatus, string> = { new: 'Новый', assigned: 'Назначен', picked_up: 'Забран', in_transit: 'В пути', delivered: 'Доставлен', cancelled: 'Отменён' }
@@ -25,6 +26,7 @@ export default function App() {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [orders, setOrders] = useState<Order[]>([])
   const [shifts, setShifts] = useState<Shift[]>([])
+  const [couriers, setCouriers] = useState<CourierOption[]>([])
   const [tab, setTab] = useState('overview')
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
@@ -56,8 +58,13 @@ export default function App() {
       supabase.from('courier_shifts').select('id,starts_at,ends_at,status').order('starts_at', { ascending: false }).limit(30),
     ])
     if (p.error) notify('Профиль: ' + p.error.message)
-    if (p.data) setProfile(p.data as Profile)
-    else if (!p.error) notify('Профиль ещё создаётся. Обнови экран через пару секунд.')
+    if (p.data) {
+      setProfile(p.data as Profile)
+      if (p.data.role === 'admin' || p.data.role === 'dispatcher') {
+        const c = await supabase.from('profiles').select('id,full_name,phone').eq('role','courier').eq('is_active',true).order('full_name')
+        if (!c.error) setCouriers((c.data || []) as CourierOption[])
+      } else setCouriers([])
+    } else if (!p.error) notify('Профиль ещё создаётся. Обнови экран через пару секунд.')
     if (o.error) notify('Заказы: ' + o.error.message)
     else setOrders((o.data || []) as Order[])
     if (!s.error) setShifts((s.data || []) as Shift[])
@@ -101,7 +108,7 @@ export default function App() {
       if (next) {
         window.setTimeout(() => { if (mounted) void loadData(next.user, true) }, 0)
       } else {
-        setProfile(null); setOrders([]); setShifts([])
+        setProfile(null); setOrders([]); setShifts([]); setCouriers([])
       }
     })
     return () => { mounted = false; listener.subscription.unsubscribe() }
@@ -179,6 +186,17 @@ export default function App() {
     notify('Статус заказа изменён: ' + statusNames[next])
   }
 
+  const assignCourier = async (order: Order, courierId: string) => {
+    if (!isStaff || !courierId || !session || order.status !== 'new') return
+    const { data, error } = await supabase.from('delivery_orders').update({
+      courier_id: courierId, status: 'assigned', accepted_at: new Date().toISOString(),
+    }).eq('id', order.id).select().single()
+    if (error) { notify('Не удалось назначить курьера: ' + error.message); return }
+    setOrders(old => old.map(o => o.id === order.id ? data as Order : o))
+    await supabase.from('order_events').insert({ order_id: order.id, actor_id: session.user.id, from_status: 'new', to_status: 'assigned', note: 'Курьер назначен диспетчером' })
+    notify('Курьер назначен на заказ #' + order.order_number)
+  }
+
   const signOut = async () => { await supabase.auth.signOut(); setProfile(null); setSession(null); setTab('overview') }
   const tabs = role === 'courier'
     ? [{ id: 'overview', label: 'Главная', icon: Truck }, { id: 'orders', label: 'Заказы', icon: Package }, { id: 'map', label: 'Карта', icon: MapPin }, { id: 'earnings', label: 'Доход', icon: Wallet }, { id: 'schedule', label: 'Смены', icon: CalendarDays }]
@@ -219,8 +237,8 @@ export default function App() {
           <Stat icon={<Check/>} label="Доставлено сегодня" value={String(deliveredToday)} note="Подтверждённые доставки" tone="green"/>
           <Stat icon={<CircleDollarSign/>} label={role==='courier'?'Мой доход':'Оборот доставок'} value={money(role==='courier'?myEarnings:revenue)} note="По сохранённым заказам" tone="violet"/>
         </section>
-        {tab==='overview'&&<><div className="section-title"><div><h2>{role==='courier'?'Доступные и мои заказы':'Последние заказы'}</h2><p>Обновляется в реальном времени</p></div><button className="text-btn" onClick={()=>setTab('orders')}>Все заказы <ChevronRight size={15}/></button></div><OrderList orders={filtered.slice(0,5)} role={role} userId={session.user.id} onAdvance={changeStatus}/></>}
-        {tab==='orders'&&<><div className="toolbar"><div className="search-box"><Search size={17}/><input placeholder="Поиск по номеру или адресу" value={search} onChange={e=>setSearch(e.target.value)}/></div><span className="result-count">{filtered.length} заказов</span></div><OrderList orders={filtered} role={role} userId={session.user.id} onAdvance={changeStatus}/></>}
+        {tab==='overview'&&<><div className="section-title"><div><h2>{role==='courier'?'Доступные и мои заказы':'Последние заказы'}</h2><p>Обновляется в реальном времени</p></div><button className="text-btn" onClick={()=>setTab('orders')}>Все заказы <ChevronRight size={15}/></button></div><OrderList orders={filtered.slice(0,5)} role={role} userId={session.user.id} couriers={couriers} onAdvance={changeStatus} onAssign={assignCourier}/></>}
+        {tab==='orders'&&<><div className="toolbar"><div className="search-box"><Search size={17}/><input placeholder="Поиск по номеру или адресу" value={search} onChange={e=>setSearch(e.target.value)}/></div><span className="result-count">{filtered.length} заказов</span></div><OrderList orders={filtered} role={role} userId={session.user.id} couriers={couriers} onAdvance={changeStatus} onAssign={assignCourier}/></>}
         {tab==='map'&&<div className="empty-panel"><MapPin size={30}/><h3>Карта и GPS</h3><p>Заказы уже хранятся в базе. Для живой карты нужно выбрать картографический сервис и регион доставки; GPS координаты подключим следующим этапом.</p></div>}
         {tab==='couriers'&&<div className="empty-panel"><Bike size={30}/><h3>Курьеры</h3><p>Профили курьеров и их активные заказы доступны через защищённые профили и назначения. Отдельный экран управления добавим следующим этапом.</p></div>}
         {tab==='clients'&&<div className="empty-panel"><Users size={30}/><h3>Клиенты</h3><p>Список клиентов будет показывать только профили, связанные с заказами пользователя или доступные сотрудникам.</p></div>}
@@ -235,14 +253,18 @@ export default function App() {
   </div>
 }
 
+function AssignControl({order,couriers,onAssign}:{order:Order;couriers:CourierOption[];onAssign:(order:Order,courierId:string)=>void}) {
+  const [courierId,setCourierId]=useState('')
+  return <div className="assign-control"><select value={courierId} onChange={e=>setCourierId(e.target.value)}><option value="">Выбери курьера</option>{couriers.map(c=><option key={c.id} value={c.id}>{c.full_name||c.phone||c.id.slice(0,8)}</option>)}</select><button className="advance-btn wide" disabled={!courierId} onClick={()=>onAssign(order,courierId)}>Назначить <ChevronRight size={14}/></button>{couriers.length===0&&<small>Нет активных курьеров с ролью «Курьер»</small>}</div>
+}
 function Stat({icon,label,value,note,tone}:{icon:ReactNode;label:string;value:string;note:string;tone:string}) { return <div className="stat-card"><div className={'stat-icon '+tone}>{icon}</div><div className="stat-label">{label}</div><div className="stat-value">{value}</div><div className="stat-note">{note}</div></div> }
-function OrderList({orders,role,userId,onAdvance}:{orders:Order[];role:Role;userId:string;onAdvance:(order:Order)=>void}) {
+function OrderList({orders,role,userId,couriers,onAdvance,onAssign}:{orders:Order[];role:Role;userId:string;couriers:CourierOption[];onAdvance:(order:Order)=>void;onAssign:(order:Order,courierId:string)=>void}) {
   if (!orders.length) return <div className="empty-panel"><Package size={28}/><h3>Заказов пока нет</h3><p>Создай первый заказ или обнови страницу, когда диспетчер назначит доставку.</p></div>
   return <div className="live-order-list">{orders.map(o=>{
     const canClaim=role==='courier'&&o.status==='new'&&!o.courier_id
     const mine=o.courier_id===userId
-    const canAdvance=role==='courier'?(canClaim||mine&&['assigned','picked_up','in_transit'].includes(o.status)):role==='admin'||role==='dispatcher'
+    const canAdvance=role==='courier'?(canClaim||mine&&['assigned','picked_up','in_transit'].includes(o.status)):(role==='admin'||role==='dispatcher')&&o.status!=='new'
     const next=canClaim?'Принять заказ':o.status==='assigned'?'Забрал заказ':o.status==='picked_up'?'Выехал':o.status==='in_transit'?'Завершить':o.status==='new'?'Назначить':''
-    return <article className="live-order-card" key={o.id}><div className="live-order-top"><b>Заказ #{o.order_number}</b><span className={'status status-'+o.status}>{statusNames[o.status]}</span></div><div className="order-route"><div><i className="route-dot from"/><span><small>ОТКУДА</small><b>{o.pickup_address}</b></span></div><div><i className="route-dot to"/><span><small>КУДА</small><b>{o.delivery_address}</b></span></div></div>{o.customer_note&&<p className="order-note">{o.customer_note}</p>}<div className="live-order-bottom"><span>{time(o.created_at)}</span><b>{money(Number(o.price))}</b>{canAdvance&&<button className="advance-btn wide" onClick={()=>onAdvance(o)}>{next}<ChevronRight size={15}/></button>}</div></article>
+    return <article className="live-order-card" key={o.id}><div className="live-order-top"><b>Заказ #{o.order_number}</b><span className={'status status-'+o.status}>{statusNames[o.status]}</span></div><div className="order-route"><div><i className="route-dot from"/><span><small>ОТКУДА</small><b>{o.pickup_address}</b></span></div><div><i className="route-dot to"/><span><small>КУДА</small><b>{o.delivery_address}</b></span></div></div>{o.customer_note&&<p className="order-note">{o.customer_note}</p>}{(role==='admin'||role==='dispatcher')&&o.status==='new'&&<AssignControl order={o} couriers={couriers} onAssign={onAssign}/>}<div className="live-order-bottom"><span>{time(o.created_at)}</span><b>{money(Number(o.price))}</b>{canAdvance&&<button className="advance-btn wide" onClick={()=>onAdvance(o)}>{next}<ChevronRight size={15}/></button>}</div></article>
   })}</div>
 }

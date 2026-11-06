@@ -232,7 +232,9 @@ with check (customer_id = (select auth.uid()) and exists (
 ));
 
 grant usage on type public.app_role, public.order_status to authenticated;
-grant select, update on public.profiles to authenticated;
+grant select on public.profiles to authenticated;
+revoke update on table public.profiles from authenticated;
+grant update (full_name, phone) on table public.profiles to authenticated;
 grant select, insert, update on public.delivery_orders to authenticated;
 grant select, insert on public.order_events to authenticated;
 grant select, insert, update on public.courier_shifts to authenticated;
@@ -249,3 +251,18 @@ grant execute on function private.is_staff() to authenticated;
 grant execute on function private.is_admin() to authenticated;
 grant execute on function private.is_active_courier() to authenticated;
 grant execute on function private.can_view_profile(uuid) to authenticated;
+
+
+-- Realtime subscriptions for dispatcher, courier and customer order tracking.
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'delivery_orders') then
+    alter publication supabase_realtime add table public.delivery_orders;
+  end if;
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'order_events') then
+    alter publication supabase_realtime add table public.order_events;
+  end if;
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'courier_shifts') then
+    alter publication supabase_realtime add table public.courier_shifts;
+  end if;
+end $$;

@@ -91,6 +91,10 @@
   document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{tab=b.dataset.tab;selectMode=false;marked.clear();render()}));
   $('#todayBtn').addEventListener('click',()=>{if(selectMode){selectMode=false;marked.clear();render();return}view=new Date(today.getFullYear(),today.getMonth(),1);selected=key(today);tab='calendar';render()});
   $('#importFile').addEventListener('change',async e=>{const f=e.target.files?.[0];if(!f)return;try{const x=JSON.parse(await f.text());if(!x||typeof x.shifts!=='object')throw Error();data={...defaults,...x,shifts:x.shifts};save();render();notify('Резервная копия восстановлена')}catch{notify('Не удалось открыть файл')}e.target.value=''});
-  if('serviceWorker'in navigator)window.addEventListener('load',()=>{\n    let refreshing=false;\n    navigator.serviceWorker.addEventListener('controllerchange',()=>{if(!refreshing){refreshing=true;window.location.reload()}});\n    navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'}).then(registration=>registration.update()).catch(()=>{});\n  });
+  if('serviceWorker'in navigator)window.addEventListener('load',()=>{
+    let refreshing=false;
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{if(!refreshing){refreshing=true;window.location.reload()}});
+    navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'}).then(registration=>registration.update()).catch(()=>{});
+  });
   render();
 })();

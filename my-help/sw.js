@@ -1,4 +1,4 @@
-const CACHE='my-help-v3-2026-11-10';
+const CACHE='my-help-v4-2026-11-10';
 const FILES=['./','./index.html','./styles.css','./app.js','./manifest.webmanifest','./icon.svg'];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES)).then(()=>self.skipWaiting()));

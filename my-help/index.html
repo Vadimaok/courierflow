@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#050505">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="My help">
+  <meta name="description" content="My help — календарь смен и учёт рабочего времени">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icon.svg">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+  <title>My help — календарь смен</title>
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="topbar">
+      <div><p class="eyebrow" id="monthEyebrow">МОЙ ГРАФИК</p><h1 id="monthTitle">Ноябрь</h1></div>
+      <button class="round-btn" id="todayBtn" aria-label="Сегодня"><span class="calendar-glyph">▦</span></button>
+    </header>
+    <main id="screen" class="screen"></main>
+    <nav class="tabbar" aria-label="Главная навигация">
+      <button class="tab active" data-tab="calendar"><span class="tab-icon">▦</span><small>Календарь</small></button>
+      <button class="tab" data-tab="reports"><span class="tab-icon">▥</span><small>Отчёты</small></button>
+      <button class="tab" data-tab="templates"><span class="tab-icon">◷</span><small>Шаблоны</small></button>
+      <button class="tab" data-tab="settings"><span class="tab-icon">•••</span><small>Ещё</small></button>
+    </nav>
+  </div>
+  <div class="sheet-backdrop hidden" id="sheetBackdrop">
+    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+      <div class="sheet-handle"></div>
+      <div class="sheet-head"><div><p class="eyebrow">МОЙ ГРАФИК</p><h2 id="sheetTitle">Новая смена</h2></div><button class="close-btn" id="closeSheet" aria-label="Закрыть">×</button></div>
+      <div id="sheetContent"></div>
+    </section>
+  </div>
+  <div class="toast hidden" id="toast" role="status"></div>
+  <script src="./app.js"></script>
+</body>
+</html>

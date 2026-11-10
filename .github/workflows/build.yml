@@ -25,6 +25,10 @@ jobs:
           node-version: 20
       - run: npm install --no-audit --no-fund --fetch-retries=5 --fetch-timeout=120000
       - run: npm run build
+      - name: Include My help iPhone app
+        run: |
+          mkdir -p dist/my-help
+          cp -R my-help/. dist/my-help/
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request'
         with:

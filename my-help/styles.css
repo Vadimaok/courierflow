@@ -41,3 +41,15 @@ button{cursor:pointer;touch-action:manipulation}
 .light-theme .month-actions button:first-child{background:#eee;color:#111}
 .light-theme .quick-add{background:#171719;color:white}
 @media(max-width:380px){.month-actions button:first-child{font-size:11px;padding:7px}.bulk-head{flex-wrap:wrap}.bulk-actions{flex-direction:column;align-items:stretch}.bulk-actions select,.bulk-actions .primary-btn{width:100%}.day{min-height:83px}}
+
+:root{--ease-out:cubic-bezier(.2,.8,.2,1)}
+html{scroll-behavior:smooth}
+button,.day,.card,.metric-tile,.shift-pill,.tab,.switch{transition:transform .18s var(--ease-out),background-color .22s ease,border-color .22s ease,opacity .22s ease,box-shadow .22s ease}
+button:active,.day:active{transform:scale(.965)}
+.calendar-grid{animation:calendarEnter .32s var(--ease-out) both}.day{animation:dayEnter .28s var(--ease-out) both}
+.day:nth-child(7n + 1){animation-delay:0ms}.day:nth-child(7n + 2){animation-delay:12ms}.day:nth-child(7n + 3){animation-delay:24ms}.day:nth-child(7n + 4){animation-delay:36ms}.day:nth-child(7n + 5){animation-delay:48ms}.day:nth-child(7n + 6){animation-delay:60ms}.day:nth-child(7n){animation-delay:72ms}
+.shift-pill{transition:filter .2s ease,transform .2s var(--ease-out)}.day:active .shift-pill{filter:brightness(1.16)}
+.quick-add{transition:transform .2s var(--ease-out),box-shadow .2s ease}.quick-add:active{transform:scale(.9) rotate(8deg);box-shadow:0 2px 12px #0007}
+.tab.active .tab-icon{transform:translateY(-2px) scale(1.08)}.sheet{animation:sheetSpring .34s var(--ease-out)}.sheet-backdrop{animation:backdropIn .2s ease}.toast{animation:toastIn .22s var(--ease-out)}
+@keyframes calendarEnter{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}@keyframes dayEnter{from{opacity:.25;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}@keyframes sheetSpring{from{transform:translateY(36px);opacity:.7}to{transform:translateY(0);opacity:1}}@keyframes backdropIn{from{opacity:0}to{opacity:1}}@keyframes toastIn{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}}
